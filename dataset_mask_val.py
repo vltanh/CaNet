@@ -138,21 +138,14 @@ class Dataset(object):
                               os.path.join(self.data_dir, 'Binary_map_aug', 'val', str(sample_class),
                                            query_name + '.png')))))
 
-        margin_h = random.randint(0, scaled_size - input_size)
+        margin_h =random.randint(0, scaled_size - input_size)
         margin_w = random.randint(0, scaled_size - input_size)
 
         query_rgb = query_rgb[:, margin_h:margin_h + input_size, margin_w:margin_w + input_size]
         query_mask = query_mask[:, margin_h:margin_h + input_size, margin_w:margin_w + input_size]
 
-        if self.history_mask_list[index] is None:
 
-            history_mask=torch.zeros(2,41,41).fill_(0.0)
-
-        else:
-
-            history_mask=self.history_mask_list[index]
-
-
+        history_mask=torch.zeros(2,41,41).fill_(0.0)
 
         return query_rgb, query_mask, support_rgb, support_mask,history_mask,sample_class,index
 
