@@ -9,10 +9,10 @@ import tqdm
 import random
 import argparse
 from dataset_mask_train import Dataset as Dataset_train
-from dataset_mask_val import Dataset as Dataset_val
+from new_dataset_mask_val import Dataset as Dataset_val
 import os
 import torch
-from network import Res_Deeplab
+from one_shot_network import Res_Deeplab
 import torch.nn as nn
 import numpy as np
 
@@ -40,14 +40,14 @@ parser.add_argument('-bs',
 parser.add_argument('-bs_val',
                     type=int,
                     help='batchsize for val',
-                    default=64)
+                    default=1)
 
 
 
 parser.add_argument('-fold',
                     type=int,
                     help='fold',
-                    default=1)
+                    default=0)
 
 
 
@@ -60,14 +60,14 @@ parser.add_argument('-gpu',
 
 parser.add_argument('-iter_time',
                     type=int,
-                    default=5)
+                    default=1)
 
 
 
 options = parser.parse_args()
 
 
-data_dir = '/your/dataset/dir/VOCdevkit/VOC2012'
+data_dir = '../davis_challenge_2020/data/PASCAL-5i/'
 
 
 
@@ -77,10 +77,18 @@ gpu_list = [int(x) for x in options.gpu.split(',')]
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 os.environ['CUDA_VISIBLE_DEVICES'] = options.gpu
 
-torch.backends.cudnn.benchmark = True
+def set_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
 
 
+def set_determinism():
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
+set_seed(3698)
+#set_determinism()
 
 IMG_MEAN = [0.485, 0.456, 0.406]
 IMG_STD = [0.229, 0.224, 0.225]
@@ -100,7 +108,7 @@ cudnn.enabled = True
 model = Res_Deeplab(num_classes=num_class)
 #load resnet-50 preatrained parameter
 model = load_resnet50_param(model, stop_layer='layer4')
-model=nn.DataParallel(model,[0,1])
+model=nn.DataParallel(model,[0])
 
 # disable the  gradients of not optomized layers
 turn_off(model)
@@ -126,6 +134,7 @@ trainloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_
 
 # valset
 # this only a quick val dataset where all images are 321*321.
+set_seed(3698)
 valset = Dataset_val(data_dir=data_dir, fold=options.fold, input_size=input_size, normalize_mean=IMG_MEAN,
                  normalize_std=IMG_STD)
 valloader = data.DataLoader(valset, batch_size=options.bs_val, shuffle=False, num_workers=4,
@@ -235,7 +244,7 @@ for epoch in range(0,num_epoch):
                     sub_index = index[j]
                     valset.history_mask_list[sub_index] = pred_softmax[j]
 
-                    pred = nn.functional.interpolate(pred, size=input_size, mode='bilinear',
+                    pred = nn.functional.interpolate(pred, size=query_rgb.shape[-2:], mode='bilinear',
                                                      align_corners=True)  #upsample  # upsample
 
                 _, pred_label = torch.max(pred, 1)
