@@ -17,7 +17,6 @@ import torch.nn as nn
 import numpy as np
 
 
-
 parser = argparse.ArgumentParser()
 
 
@@ -40,8 +39,7 @@ parser.add_argument('-bs',
 parser.add_argument('-bs_val',
                     type=int,
                     help='batchsize for val',
-                    default=64)
-
+                    default=1)
 
 
 parser.add_argument('-fold',
@@ -50,34 +48,34 @@ parser.add_argument('-fold',
                     default=0)
 
 
-
 parser.add_argument('-gpu',
                     type=str,
                     help='gpu id to use',
                     default='0,1')
 
 
-
 parser.add_argument('-iter_time',
                     type=int,
-                    default=5)
+                    default=1)
 
 parser.add_argument('-w',
+                    type=str)
+
+parser.add_argument('-d',
                     type=str)
 
 
 options = parser.parse_args()
 
 
-data_dir = '../davis_challenge_2020/data/PASCAL-5i/'
+data_dir = options.d
 
 
-
-
-#set gpus
+# set gpus
 gpu_list = [int(x) for x in options.gpu.split(',')]
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 os.environ['CUDA_VISIBLE_DEVICES'] = options.gpu
+
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -89,8 +87,19 @@ def set_determinism():
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+
+def convert_image_np(inp):
+    """Convert a Tensor to numpy image."""
+    inp = inp.numpy().transpose((1, 2, 0))
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    inp = std * inp + mean
+    inp = np.clip(inp, 0, 1)
+    return inp
+
+
 set_seed(3698)
-#set_determinism()
+# set_determinism()
 
 IMG_MEAN = [0.485, 0.456, 0.406]
 IMG_STD = [0.229, 0.224, 0.225]
@@ -108,21 +117,17 @@ cudnn.enabled = True
 
 # Create network.
 model = Res_Deeplab(num_classes=num_class)
-#load resnet-50 preatrained parameter
+# load resnet-50 preatrained parameter
 model = load_resnet50_param(model, stop_layer='layer4')
-model=nn.DataParallel(model,[0])
+model = nn.DataParallel(model, [0])
 
 # disable the  gradients of not optomized layers
 turn_off(model)
 
 model.load_state_dict(torch.load(options.w))
 
-checkpoint_dir = 'checkpoint/fo=%d/'% options.fold
+checkpoint_dir = 'checkpoint/fo=%d/' % options.fold
 check_dir(checkpoint_dir)
-
-
-
-
 
 
 # loading data
@@ -131,64 +136,54 @@ check_dir(checkpoint_dir)
 # valset
 # this only a quick val dataset where all images are 321*321.
 valset = Dataset_val(data_dir=data_dir, fold=options.fold, input_size=input_size, normalize_mean=IMG_MEAN,
-                 normalize_std=IMG_STD)
+                     normalize_std=IMG_STD)
 valloader = data.DataLoader(valset, batch_size=options.bs_val, shuffle=False, num_workers=4,
                             drop_last=False)
 
-save_pred_every =len(trainloader)
-
-
-
 
 optimizer = optim.SGD([{'params': get_10x_lr_params(model), 'lr': 10 * learning_rate}],
-                          lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
+                      lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
 
 
-
-
-loss_list = []#track training loss
-iou_list = []#track validaiton iou
+loss_list = []  # track training loss
+iou_list = []  # track validaiton iou
 highest_iou = 0
-
-
-
-
-
-
 
 
 model.cuda()
 tempory_loss = 0  # accumulated loss
 model = model.train()
-best_epoch=0
-for epoch in range(0,num_epoch):
-
-
+best_epoch = 0
+for epoch in range(0, num_epoch):
     begin_time = time.time()
-    tqdm_gen = tqdm.tqdm(trainloader)
 
     # ======================evaluate now==================
     with torch.no_grad():
-        print ('----Evaluation----')
+        print('----Evaluation----')
         model = model.eval()
 
-        valset.history_mask_list=[None] * 1000
+        valset.history_mask_list = [None] * 1000
         best_iou = 0
         for eva_iter in range(options.iter_time):
             all_inter, all_union, all_predict = [0] * 5, [0] * 5, [0] * 5
-            for i_iter, batch in enumerate(valloader):
+            for i_iter, batch in enumerate(tqdm.tqdm(valloader)):
+                if i_iter != 871:
+                    continue
 
                 query_rgb, query_mask, support_rgb, support_mask, history_mask, sample_class, index = batch
 
                 query_rgb = (query_rgb).cuda(0)
                 support_rgb = (support_rgb).cuda(0)
                 support_mask = (support_mask).cuda(0)
-                query_mask = (query_mask).cuda(0).long()  # change formation for crossentropy use
+                # change formation for crossentropy use
+                query_mask = (query_mask).cuda(0).long()
 
-                query_mask = query_mask[:, 0, :, :]  # remove the second dim,change formation for crossentropy use
+                # remove the second dim,change formation for crossentropy use
+                query_mask = query_mask[:, 0, :, :]
                 history_mask = (history_mask).cuda(0)
 
-                pred = model(query_rgb, support_rgb, support_mask,history_mask)
+                pred = model(query_rgb, support_rgb,
+                             support_mask, history_mask)
                 pred_softmax = F.softmax(pred, dim=1).data.cpu()
 
                 # update history mask
@@ -197,14 +192,31 @@ for epoch in range(0,num_epoch):
                     valset.history_mask_list[sub_index] = pred_softmax[j]
 
                     pred = nn.functional.interpolate(pred, size=query_mask.shape[-2:], mode='bilinear',
-                                                     align_corners=True)  #upsample  # upsample
+                                                     align_corners=True)  # upsample  # upsample
 
                 _, pred_label = torch.max(pred, 1)
-                inter_list, union_list, _, num_predict_list = get_iou_v1(query_mask, pred_label)
-                for j in range(query_mask.shape[0]):#batch size
-                    all_inter[sample_class[j] - (options.fold * 5 + 1)] += inter_list[j]
-                    all_union[sample_class[j] - (options.fold * 5 + 1)] += union_list[j]
 
+                plt.subplot(1, 2, 1)
+                plt.imshow(convert_image_np(support_rgb[0].cpu()))
+                plt.imshow(support_mask[0][0].cpu(), alpha=0.5)
+
+                plt.subplot(1, 2, 2)
+                plt.imshow(convert_image_np(query_rgb[0].cpu()))
+                plt.imshow(pred_label[0].cpu(), alpha=0.5)
+
+                plt.tight_layout()
+                plt.savefig(f'viz{options.fold}/{i_iter:03d}')
+                # plt.show()
+                plt.close()
+
+                _, pred_label = torch.max(pred, 1)
+                inter_list, union_list, _, num_predict_list = get_iou_v1(
+                    query_mask, pred_label)
+                for j in range(query_mask.shape[0]):  # batch size
+                    all_inter[sample_class[j] -
+                              (options.fold * 5 + 1)] += inter_list[j]
+                    all_union[sample_class[j] -
+                              (options.fold * 5 + 1)] += union_list[j]
 
             IOU = [0] * 5
 
@@ -212,19 +224,17 @@ for epoch in range(0,num_epoch):
                 IOU[j] = all_inter[j] / all_union[j]
 
             mean_iou = np.mean(IOU)
+            print(IOU)
             print('IOU:%.4f' % (mean_iou))
             if mean_iou > best_iou:
                 best_iou = mean_iou
             else:
                 break
 
-
-
-
         iou_list.append(best_iou)
         plot_iou(checkpoint_dir, iou_list)
         #np.savetxt(os.path.join(checkpoint_dir, 'iou_history.txt'), np.array(iou_list))
-        if best_iou>highest_iou:
+        if best_iou > highest_iou:
             highest_iou = best_iou
             model = model.eval()
             #torch.save(model.cpu().state_dict(), osp.join(checkpoint_dir, 'model', 'best' '.pth'))
@@ -232,20 +242,12 @@ for epoch in range(0,num_epoch):
             best_epoch = epoch
             print('A better model is saved')
 
-
-
         print('IOU for this epoch: %.4f' % (best_iou))
-
 
         model = model.train()
         model.cuda()
-
-
 
     epoch_time = time.time() - begin_time
     print('best epoch:%d ,iout:%.4f' % (best_epoch, highest_iou))
     print('This epoch taks:', epoch_time, 'second')
     print('still need hour:%.4f' % ((num_epoch - epoch) * epoch_time / 3600))
-
-
-
