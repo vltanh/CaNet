@@ -60,14 +60,16 @@ parser.add_argument('-gpu',
 
 parser.add_argument('-iter_time',
                     type=int,
-                    default=1)
+                    default=5)
 
+parser.add_argument('-data',
+                    type=str)
 
 
 options = parser.parse_args()
 
 
-data_dir = '../davis_challenge_2020/data/PASCAL-5i/'
+data_dir = options.data #'../davis_challenge_2020/data/PASCAL-5i/'
 
 
 
@@ -87,7 +89,6 @@ def set_determinism():
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-set_seed(3698)
 #set_determinism()
 
 IMG_MEAN = [0.485, 0.456, 0.406]
@@ -104,6 +105,7 @@ power = 0.9
 cudnn.enabled = True
 
 
+set_seed(3698)
 # Create network.
 model = Res_Deeplab(num_classes=num_class)
 #load resnet-50 preatrained parameter
@@ -128,6 +130,7 @@ check_dir(checkpoint_dir)
 # loading data
 
 # trainset
+set_seed(3698)
 dataset = Dataset_train(data_dir=data_dir, fold=options.fold, input_size=input_size, normalize_mean=IMG_MEAN,
                   normalize_std=IMG_STD,prob=options.prob)
 trainloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -142,39 +145,21 @@ valloader = data.DataLoader(valset, batch_size=options.bs_val, shuffle=False, nu
 
 save_pred_every =len(trainloader)
 
-
-
-
 optimizer = optim.SGD([{'params': get_10x_lr_params(model), 'lr': 10 * learning_rate}],
                           lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
-
-
-
 
 loss_list = []#track training loss
 iou_list = []#track validaiton iou
 highest_iou = 0
-
-
-
-
-
-
-
 
 model.cuda()
 tempory_loss = 0  # accumulated loss
 model = model.train()
 best_epoch=0
 for epoch in range(0,num_epoch):
-
-
     begin_time = time.time()
     tqdm_gen = tqdm.tqdm(trainloader)
-
-
     for i_iter, batch in enumerate(tqdm_gen):
-
         query_rgb, query_mask,support_rgb, support_mask,history_mask,sample_class,index= batch
 
         query_rgb = (query_rgb).cuda(0)
@@ -183,7 +168,6 @@ for epoch in range(0,num_epoch):
         query_mask = (query_mask).cuda(0).long()  # change formation for crossentropy use
         query_mask = query_mask[:, 0, :, :]  # remove the second dim,change formation for crossentropy use
         history_mask=(history_mask).cuda(0)
-
 
         optimizer.zero_grad()
 
@@ -195,7 +179,6 @@ for epoch in range(0,num_epoch):
             sub_index=index[j]
             dataset.history_mask_list[sub_index]=pred_softmax[j]
 
-
         pred = nn.functional.interpolate(pred,size=input_size, mode='bilinear',align_corners=True)#upsample
 
         loss = loss_calc_v1(pred, query_mask, 0)
@@ -204,7 +187,6 @@ for epoch in range(0,num_epoch):
 
         tqdm_gen.set_description('e:%d loss = %.4f-:%.4f' % (
         epoch, loss.item(),highest_iou))
-
 
         #save training loss
         tempory_loss += loss.item()
@@ -253,7 +235,6 @@ for epoch in range(0,num_epoch):
                     all_inter[sample_class[j] - (options.fold * 5 + 1)] += inter_list[j]
                     all_union[sample_class[j] - (options.fold * 5 + 1)] += union_list[j]
 
-
             IOU = [0] * 5
 
             for j in range(5):
@@ -266,9 +247,6 @@ for epoch in range(0,num_epoch):
             else:
                 break
 
-
-
-
         iou_list.append(best_iou)
         plot_iou(checkpoint_dir, iou_list)
         np.savetxt(os.path.join(checkpoint_dir, 'iou_history.txt'), np.array(iou_list))
@@ -279,21 +257,10 @@ for epoch in range(0,num_epoch):
             model = model.train()
             best_epoch = epoch
             print('A better model is saved')
-
-
-
         print('IOU for this epoch: %.4f' % (best_iou))
-
-
         model = model.train()
         model.cuda()
-
-
-
     epoch_time = time.time() - begin_time
     print('best epoch:%d ,iout:%.4f' % (best_epoch, highest_iou))
     print('This epoch taks:', epoch_time, 'second')
     print('still need hour:%.4f' % ((num_epoch - epoch) * epoch_time / 3600))
-
-
-
