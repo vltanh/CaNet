@@ -89,7 +89,11 @@ class Dataset(object):
         support_mask = self.ToTensor(Image.open(os.path.join(self.data_dir, 'Binary_map_aug', 'val', str(sample_class), support_name + '.png')))
         query_rgb = self.normalize(self.ToTensor(Image.open(os.path.join(self.data_dir, 'JPEGImages', query_name + '.jpg'))))
         query_mask = self.ToTensor(Image.open(os.path.join(self.data_dir, 'Binary_map_aug', 'val', str(sample_class),query_name + '.png')))
-        history_mask=torch.zeros(2,41,41).fill_(0.0)
+        #history_mask=torch.zeros(2,41,41).fill_(0.0)
+        if self.history_mask_list[index] is None:
+            history_mask = torch.zeros(2, 41, 41).fill_(0.0)
+        else:
+            history_mask = self.history_mask_list[index]
         return query_rgb, query_mask, support_rgb, support_mask,history_mask,sample_class,index
 
     def __len__(self):
