@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 import numpy as np
 import torch.nn.functional as F
-
+import math
 
 #code of dilated convolution part is referenced from https://github.com/speedinghzl/Pytorch-Deeplab
 
@@ -104,6 +104,33 @@ class Bottleneck(nn.Module):
 
 
 
+class Memory(nn.Module):
+    def __init__(self):
+        super(Memory, self).__init__()
+
+    def forward(self, m_k, m_v, q_k):
+        # m_k: B, Dk, Hm, Wm
+        # m_v: B, Dv, Hm, Wm
+        # q_k: B, Dk, Hq, Wq
+
+        B, Dk, Hm, Wm = m_k.size()
+        _,  _, Hq, Wq = q_k.size()
+        _, Dv,  _,  _ = m_v.size()
+
+        mk = m_k.reshape(B, Dk, Hm*Wm)  # mk: B, Dk, Hm*Wm
+        mk = torch.transpose(mk, 1, 2)  # mk: B, Hm*Wm, Dk
+
+        qk = q_k.reshape(B, Dk, Hq*Wq)  # qk: B, Dk, Hq*Wq
+
+        p = torch.bmm(mk, qk)  # p: B, Hm*Wm, Hq*Wq
+        p = p / math.sqrt(Dk)  # p: B, Hm*Wm, Hq*Wq
+        p = F.softmax(p, dim=1)  # p: B, Hm*Wm, Hq*Wq
+
+        mv = m_v.reshape(B, Dv, Hm*Wm)  # mv: B, Dv, Hm*Wm
+        mem = torch.bmm(mv, p)  # B, Dv, Hq*Wq
+        mem = mem.reshape(B, Dv, Hq, Wq)  # B, Dv, Hq, Wq
+
+        return mem, p
 
 
 
@@ -128,11 +155,13 @@ class ResNet(nn.Module):
         #self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
 
 
-        self.layer5 = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias = True),
+        self.layer5_K = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias = True),
                                     nn.ReLU(),
                                     nn.Dropout2d(p=0.5))
 
-
+        self.layer5_V = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias = True),
+                                    nn.ReLU(),
+                                    nn.Dropout2d(p=0.5))
 
         self.layer55 = nn.Sequential(
             nn.Conv2d(in_channels=256 * 2, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2,
@@ -211,7 +240,7 @@ class ResNet(nn.Module):
         self.layer9=nn.Conv2d(256,num_classes,kernel_size=1,stride=1,bias=True)
 
 
-
+        self.memory = Memory()
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -249,17 +278,15 @@ class ResNet(nn.Module):
         query_rgb = self.maxpool(query_rgb)
         query_rgb = self.layer1(query_rgb)
         query_rgb = self.layer2(query_rgb)
-        query_feat_layer2=query_rgb
+        query_feat_layer2 = query_rgb
         query_rgb = self.layer3(query_rgb)
         # query_rgb = self.layer4(query_rgb)
-        query_rgb=torch.cat([query_feat_layer2,query_rgb],dim=1)
+        query_rgb_ = torch.cat([query_feat_layer2,query_rgb],dim=1)
 
-        query_rgb = self.layer5(query_rgb)
+        query_rgb_K = self.layer5_K(query_rgb_) 
+        query_rgb_V = self.layer5_V(query_rgb_)
 
         feature_size = query_rgb.shape[-2:]
-
-
-
 
         #side branch,get latent embedding z
         support_rgb = self.conv1(support_rgb)
@@ -272,40 +299,41 @@ class ResNet(nn.Module):
         support_rgb = self.layer3(support_rgb)
 
         #support_rgb = self.layer4(support_rgb)
-        support_rgb = torch.cat([support_feat_layer2, support_rgb], dim=1)
-        support_rgb = self.layer5(support_rgb)
-
-
+        support_rgb_ = torch.cat([support_feat_layer2, support_rgb], dim=1)
+        support_rgb_K = self.layer5_K(support_rgb_)
+        support_rgb_V = self.layer5_V(support_rgb_)
         support_mask = F.interpolate(support_mask, support_rgb.shape[-2:], mode='bilinear',align_corners=True)
-        h,w=support_rgb.shape[-2:][0],support_rgb.shape[-2:][1]
+        
+        # ======== START ==============
+        if False:
+            h, w = support_rgb.shape[-2:]
+            area = F.avg_pool2d(support_mask, support_rgb.shape[-2:]) * h * w + 0.0005
+            z = support_mask * support_rgb
+            z = F.avg_pool2d(input=z,
+                             kernel_size=support_rgb.shape[-2:]) * h * w / area
+            z = z.expand(-1, -1, feature_size[0], feature_size[1])  # tile for cat
+        else:
+            z_K = support_mask * support_rgb_K
+            z_V = support_mask * support_rgb_V
+            z, p = self.memory(z_K, z_V, query_rgb_K)
+        # ======= END ================
 
-
-        area = F.avg_pool2d(support_mask, support_rgb.shape[-2:]) * h * w + 0.0005
-        z = support_mask * support_rgb
-        z = F.avg_pool2d(input=z,
-                         kernel_size=support_rgb.shape[-2:]) * h * w / area
-        z = z.expand(-1, -1, feature_size[0], feature_size[1])  # tile for cat
-
+        out=torch.cat([query_rgb_V,z],dim=1)
 
         history_mask=F.interpolate(history_mask,feature_size,mode='bilinear',align_corners=True)
-
-        out=torch.cat([query_rgb,z],dim=1)
         out = self.layer55(out)
         out_plus_history=torch.cat([out,history_mask],dim=1)
         out = out + self.residule1(out_plus_history)
         out = out + self.residule2(out)
         out = out + self.residule3(out)
 
-
-
-
         global_feature=F.avg_pool2d(out,kernel_size=feature_size)
         global_feature=self.layer6_0(global_feature)
         global_feature=global_feature.expand(-1,-1,feature_size[0],feature_size[1])
         out=torch.cat([global_feature,self.layer6_1(out),self.layer6_2(out),self.layer6_3(out),self.layer6_4(out)],dim=1)
         out=self.layer7(out)
-
         out=self.layer9(out)
+
         return out
 
 

@@ -54,7 +54,8 @@ def get_10x_lr_params(model):
     """
 
     b = []
-    b.append(model.module.layer5.parameters())
+    b.append(model.module.layer5_K.parameters())
+    b.append(model.module.layer5_V.parameters())
     b.append(model.module.layer55.parameters())
     b.append(model.module.layer6_0.parameters())
     b.append(model.module.layer6_1.parameters())
@@ -99,7 +100,7 @@ def plot_iou(checkpoint_dir,iou_list):
     x=range(0,len(iou_list))
     y=iou_list
     plt.switch_backend('agg')
-    plt.plot(x,y,color='red',marker='o',label='IOU')
+    plt.plot(x,y,color='red',marker='.',label='IOU')
     plt.xticks(range(0,len(iou_list)+3,(len(iou_list)+10)//10))
     plt.legend()
     plt.grid()
