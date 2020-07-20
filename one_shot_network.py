@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import math
+from utils import convert_image_np
 
 # code of dilated convolution part is referenced from https://github.com/speedinghzl/Pytorch-Deeplab
 
@@ -21,16 +22,6 @@ def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
-
-
-def convert_image_np(inp):
-    """Convert a Tensor to numpy image."""
-    inp = inp.numpy().transpose((1, 2, 0))
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    inp = std * inp + mean
-    inp = np.clip(inp, 0, 1)
-    return inp
 
 
 class BasicBlock(nn.Module):
@@ -143,7 +134,7 @@ class Memory(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes):
+    def __init__(self, block, layers, num_classes, attn):
 
         self.inplanes = 64
         super(ResNet, self).__init__()
@@ -159,15 +150,14 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(
             block, 256, layers[2], stride=1, dilation=2)
-        #self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
+        # self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
 
-        self.layer5 = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
-                                    nn.ReLU(),
-                                    nn.Dropout2d(p=0.5))
-
-        # self.layer5_K = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias = True),
-        #                             nn.ReLU(),
-        #                             nn.Dropout2d(p=0.5))
+        self.layer5_K = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+                                      nn.ReLU(),
+                                      nn.Dropout2d(p=0.5))
+        self.layer5_V = nn.Sequential(nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2, bias=True),
+                                      nn.ReLU(),
+                                      nn.Dropout2d(p=0.5))
 
         self.layer55 = nn.Sequential(
             nn.Conv2d(in_channels=256 * 2, out_channels=256, kernel_size=3, stride=1, padding=2, dilation=2,
@@ -249,6 +239,8 @@ class ResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
+        self.attn = attn
+
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         # 注意，resnet中每个大block内的第一个bottleneck之后又个downsample
@@ -288,8 +280,8 @@ class ResNet(nn.Module):
         # query_rgb = self.layer4(query_rgb)
         query_rgb_ = torch.cat([query_feat_layer2, query_rgb], dim=1)
 
-        query_rgb = self.layer5(query_rgb_)
-        # query_rgb_K = self.layer5_K(query_rgb_)
+        query_rgb_K = self.layer5_K(query_rgb_)
+        query_rgb_V = self.layer5_V(query_rgb_)
 
         feature_size = query_rgb.shape[-2:]
 
@@ -303,10 +295,11 @@ class ResNet(nn.Module):
         support_feat_layer2 = support_rgb
         support_rgb = self.layer3(support_rgb)
 
-        #support_rgb = self.layer4(support_rgb)
+        # support_rgb = self.layer4(support_rgb)
         support_rgb_ = torch.cat([support_feat_layer2, support_rgb], dim=1)
-        support_rgb = self.layer5(support_rgb_)
-        # support_rgb_K = self.layer5_K(support_rgb_)
+        support_rgb_K = self.layer5_K(support_rgb_)
+        support_rgb_V = self.layer5_V(support_rgb_)
+
         support_mask = F.interpolate(
             support_mask, support_rgb.shape[-2:], mode='bilinear', align_corners=True)
 
@@ -321,12 +314,9 @@ class ResNet(nn.Module):
             # tile for cat
             z = z.expand(-1, -1, feature_size[0], feature_size[1])
         else:
-            # z_K = support_mask * support_rgb_K
-            # z_V = support_mask * support_rgb
-            # z, p = self.memory(z_K, z_V, query_rgb_K)
-
-            z = support_mask * support_rgb
-            z, viz = self.memory(z, z, query_rgb)
+            z_V = support_rgb_V
+            z_K = support_mask * support_rgb_K
+            z, viz = self.memory(z_K, z_V, query_rgb_K)
 
             import matplotlib.pyplot as plt
             for i in range(viz.size(2)):
@@ -350,10 +340,9 @@ class ResNet(nn.Module):
                 plt.savefig(f'viz/{i:04d}')
                 # plt.show()
                 plt.close()
-
         # ======= END ================
 
-        out = torch.cat([query_rgb, z], dim=1)
+        out = torch.cat([query_rgb_V, z], dim=1)
 
         history_mask = F.interpolate(
             history_mask, feature_size, mode='bilinear', align_corners=True)
@@ -375,8 +364,8 @@ class ResNet(nn.Module):
         return out
 
 
-def Res_Deeplab(num_classes=2):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes)
+def Res_Deeplab(num_classes=2, attn=True):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes, attn)
     return model
 
 
