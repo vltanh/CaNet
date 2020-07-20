@@ -20,10 +20,10 @@ def load_resnet50_param(model, stop_layer='layer4'):
     return model
 
 
-def check_dir(checkpoint_dir):#create a dir if dir not exists
+def check_dir(checkpoint_dir):
     if not os.path.exists(checkpoint_dir):
-        os.makedirs(os.path.join(checkpoint_dir,'model'))
-        os.makedirs(os.path.join(checkpoint_dir,'pred_img'))
+        os.makedirs(os.path.join(checkpoint_dir, 'model'))
+        os.makedirs(os.path.join(checkpoint_dir, 'pred_img'))
 
 
 def optim_or_not(model, yes):

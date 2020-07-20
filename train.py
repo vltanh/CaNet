@@ -16,17 +16,17 @@ from one_shot_network import Res_Deeplab
 import torch.nn as nn
 import numpy as np
 
-### Parse CMD arguments
+# === Parse CMD arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-lr', 
+parser.add_argument('-lr',
                     type=float,
                     help='learning rate',
                     default=0.00025)
-parser.add_argument('-prob', 
+parser.add_argument('-prob',
                     type=float,
                     help='dropout rate of history mask',
                     default=0.7)
-parser.add_argument('-bs', 
+parser.add_argument('-bs',
                     type=int,
                     help='batch size in training',
                     default=4)
@@ -59,7 +59,7 @@ def set_determinism():
     torch.backends.cudnn.deterministic = True
 
 
-### Constants/Variables
+# === Constants/Variables
 IMG_MEAN = [0.485, 0.456, 0.406]
 IMG_STD = [0.229, 0.224, 0.225]
 num_class = 2
@@ -70,40 +70,49 @@ batch_size = options.bs
 weight_decay = 0.0005
 momentum = 0.9
 
-### GPU-related
+# === GPU-related
 gpu_list = [int(x) for x in options.gpu.split(',')]
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 os.environ['CUDA_VISIBLE_DEVICES'] = options.gpu
 cudnn.enabled = True
 
-checkpoint_dir = 'checkpoint/fo=%d/'% options.fold
+# === Log directory
+checkpoint_dir = 'checkpoint/fo=%d/' % options.fold
 check_dir(checkpoint_dir)
 
-### Network architecture
+# === Network architecture
 set_seed(3698)
 model = Res_Deeplab(num_classes=num_class)
 model = load_resnet50_param(model, stop_layer='layer4')
-model = nn.DataParallel(model,[0])
+model = nn.DataParallel(model, [0])
 turn_off(model)
 
-### Dataset
+# === Dataset
 # Train
 set_seed(3698)
-dataset = Dataset_train(data_dir=options.data, fold=options.fold, 
-                        input_size=input_size, normalize_mean=IMG_MEAN, normalize_std=IMG_STD,
+dataset = Dataset_train(data_dir=options.data, fold=options.fold,
+                        input_size=input_size,
+                        normalize_mean=IMG_MEAN, normalize_std=IMG_STD,
                         prob=options.prob)
-trainloader = data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+trainloader = data.DataLoader(dataset,
+                              batch_size=batch_size,
+                              shuffle=True,
+                              num_workers=4)
 
 # Validation
 set_seed(3698)
-valset = Dataset_val(data_dir=options.data, fold=options.fold, 
-                     input_size=input_size, normalize_mean=IMG_MEAN, normalize_std=IMG_STD)
-valloader = data.DataLoader(valset, batch_size=1, shuffle=False, num_workers=4)
+valset = Dataset_val(data_dir=options.data, fold=options.fold,
+                     input_size=input_size,
+                     normalize_mean=IMG_MEAN, normalize_std=IMG_STD)
+valloader = data.DataLoader(valset,
+                            batch_size=1,
+                            shuffle=False,
+                            num_workers=4)
 
-save_pred_every =len(trainloader)
+save_pred_every = len(trainloader)
 
-### Optimizer
-optimizer = optim.SGD([{'params': get_10x_lr_params(model), 
+# === Optimizer
+optimizer = optim.SGD([{'params': get_10x_lr_params(model),
                         'lr': 10 * learning_rate}],
                       lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
 
@@ -114,11 +123,11 @@ highest_iou = 0
 model.cuda()
 tempory_loss = 0
 model = model.train()
-best_epoch=0
-for epoch in range(0,num_epoch):
+best_epoch = 0
+for epoch in range(0, num_epoch):
     begin_time = time.time()
 
-    ### Train stage
+    # === Train stage
     model.train()
     tqdm_gen = tqdm.tqdm(trainloader)
     for i_iter, batch in enumerate(tqdm_gen):
@@ -128,7 +137,7 @@ for epoch in range(0,num_epoch):
         support_rgb = (support_rgb).cuda(0)
         support_mask = (support_mask).cuda(0)
         query_mask = (query_mask).cuda(0).long()
-        query_mask = query_mask[:, 0, :, :] 
+        query_mask = query_mask[:, 0, :, :]
         history_mask = (history_mask).cuda(0)
 
         optimizer.zero_grad()
@@ -136,30 +145,33 @@ for epoch in range(0,num_epoch):
         pred = model(query_rgb, support_rgb, support_mask, history_mask)
         pred_softmax = F.softmax(pred, dim=1).data.cpu()
 
-        #update history mask
-        for j in range (support_mask.shape[0]):
+        # update history mask
+        for j in range(support_mask.shape[0]):
             sub_index = index[j]
             dataset.history_mask_list[sub_index] = pred_softmax[j]
-        pred = nn.functional.interpolate(pred,size=input_size, mode='bilinear',align_corners=True)
+        pred = nn.functional.interpolate(pred, size=input_size,
+                                         mode='bilinear', align_corners=True)
 
         loss = loss_calc_v1(pred, query_mask, 0)
         loss.backward()
         optimizer.step()
 
-        tqdm_gen.set_description('e:%d loss = %.4f-:%.4f' % (
-        epoch, loss.item(),highest_iou))
+        tqdm_gen.set_description(
+            'e:%d loss = %.4f-:%.4f' % (epoch, loss.item(), highest_iou)
+        )
 
-        #save training loss
+        # save training loss
         tempory_loss += loss.item()
         if i_iter % save_pred_every == 0 and i_iter != 0:
             loss_list.append(tempory_loss / save_pred_every)
             plot_loss(checkpoint_dir, loss_list, save_pred_every)
-            np.savetxt(os.path.join(checkpoint_dir, 'loss_history.txt'), np.array(loss_list))
+            np.savetxt(osp.join(checkpoint_dir, 'loss_history.txt'),
+                       np.array(loss_list))
             tempory_loss = 0
 
-    # Validation stage
+    # === Validation stage
     with torch.no_grad():
-        print ('----Evaluation----')
+        print('----Evaluation----')
         model.eval()
 
         valset.history_mask_list = [None] * 1000
@@ -176,22 +188,23 @@ for epoch in range(0,num_epoch):
                 query_mask = query_mask[:, 0, :, :]
                 history_mask = history_mask.cuda(0)
 
-                pred = model(query_rgb, support_rgb, support_mask,history_mask)
+                pred = model(query_rgb, support_rgb,
+                             support_mask, history_mask)
                 pred_softmax = F.softmax(pred, dim=1).data.cpu()
 
                 # update history mask
                 for j in range(support_mask.shape[0]):
                     sub_index = index[j]
                     valset.history_mask_list[sub_index] = pred_softmax[j]
-                    pred = nn.functional.interpolate(pred, 
-                                                     size=query_rgb.shape[-2:], 
-                                                     mode='bilinear',
-                                                     align_corners=True)
+                    pred = nn.functional.interpolate(pred, size=query_rgb.shape[-2:],
+                                                     mode='bilinear', align_corners=True)
                 _, pred_label = torch.max(pred, 1)
-                inter_list, union_list, _, num_predict_list = get_iou_v1(query_mask, pred_label)
+                inter_list, union_list, _, num_predict_list = \
+                    get_iou_v1(query_mask, pred_label)
                 for j in range(query_mask.shape[0]):
-                    all_inter[sample_class[j] - (options.fold * 5 + 1)] += inter_list[j]
-                    all_union[sample_class[j] - (options.fold * 5 + 1)] += union_list[j]
+                    mapped_cid = sample_class[j] - (options.fold * 5 + 1)
+                    all_inter[mapped_cid] += inter_list[j]
+                    all_union[mapped_cid] += union_list[j]
 
             IOU = [0] * 5
             for j in range(5):
@@ -205,11 +218,13 @@ for epoch in range(0,num_epoch):
 
         iou_list.append(best_iou)
         plot_iou(checkpoint_dir, iou_list)
-        np.savetxt(os.path.join(checkpoint_dir, 'iou_history.txt'), np.array(iou_list))
-        if best_iou>highest_iou:
+        np.savetxt(osp.join(checkpoint_dir, 'iou_history.txt'),
+                   np.array(iou_list))
+        if best_iou > highest_iou:
             highest_iou = best_iou
             model = model.eval()
-            torch.save(model.cpu().state_dict(), osp.join(checkpoint_dir, 'model', 'best' '.pth'))
+            torch.save(model.cpu().state_dict(),
+                       osp.join(checkpoint_dir, 'model', 'best' '.pth'))
             model = model.train()
             best_epoch = epoch
             print('A better model is saved')
