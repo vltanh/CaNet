@@ -15,7 +15,6 @@ import torch
 from one_shot_network import Res_Deeplab
 import torch.nn as nn
 import numpy as np
-from utils import convert_image_np
 
 
 parser = argparse.ArgumentParser()
@@ -110,16 +109,10 @@ power = 0.9
 
 cudnn.enabled = True
 
-
 # Create network.
-model = Res_Deeplab(num_classes=num_class, attn=options.a)
-# load resnet-50 preatrained parameter
+model = Res_Deeplab(num_classes=num_class)
 model = load_resnet50_param(model, stop_layer='layer4')
 model = nn.DataParallel(model, [0])
-
-# disable the  gradients of not optomized layers
-# turn_off(model)
-
 model.load_state_dict(torch.load(options.w))
 
 valset = Dataset_val(data_dir=data_dir, fold=options.fold, input_size=input_size, normalize_mean=IMG_MEAN,
@@ -127,16 +120,11 @@ valset = Dataset_val(data_dir=data_dir, fold=options.fold, input_size=input_size
 valloader = data.DataLoader(valset, batch_size=options.bs_val, shuffle=False, num_workers=4,
                             drop_last=False)
 
-
-loss_list = []  # track training loss
 iou_list = []  # track validaiton iou
 highest_iou = 0
 
-
 model.cuda()
 begin_time = time.time()
-
-# ======================evaluate now==================
 with torch.no_grad():
     print('----Evaluation----')
     model = model.eval()
@@ -146,8 +134,8 @@ with torch.no_grad():
     for eva_iter in range(options.iter_time):
         all_inter, all_union, all_predict = [0] * 5, [0] * 5, [0] * 5
         for i_iter, batch in enumerate(tqdm.tqdm(valloader)):
-            # if i_iter != 55:
-            #     continue
+            if i_iter != 55:
+                continue
 
             query_rgb, query_mask, support_rgb, support_mask, history_mask, sample_class, index = batch
 
@@ -209,11 +197,7 @@ with torch.no_grad():
         print('IOU:%.4f' % (mean_iou))
         if mean_iou > best_iou:
             best_iou = mean_iou
-        else:
-            break
     print('IOU for this epoch: %.4f' % (best_iou))
 
 epoch_time = time.time() - begin_time
-print('best epoch:%d ,iout:%.4f' % (best_epoch, highest_iou))
-print('This epoch taks:', epoch_time, 'second')
-print('still need hour:%.4f' % ((num_epoch - epoch) * epoch_time / 3600))
+print('This epoch takes:', epoch_time, 'second')
