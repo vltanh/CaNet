@@ -229,6 +229,7 @@ for epoch in range(0, num_epoch):
             best_epoch = epoch
             print('A better model is saved')
         print('IOU for this epoch: %.4f' % (best_iou))
+        model.cuda()
     epoch_time = time.time() - begin_time
     print('best epoch:%d ,iout:%.4f' % (best_epoch, highest_iou))
     print('This epoch taks:', epoch_time, 'second')

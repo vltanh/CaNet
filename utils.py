@@ -105,13 +105,13 @@ def get_iou_v1(query_mask, pred_label, mode='foreground'):
     B = query_mask.shape[0]
     num_predict_list, inter_list, union_list, iou_list = [], [], [], []
     for i in range(B):
-        num_predict = (pred_label[i] > 0).sum().item()
+        num_predict = (pred_label[i] > 0).sum().float().item()
         combination = query_mask[i] + pred_label[i]
-        inter = (combination == 2).sum().item()
-        union = (combination == 1).sum().item() + inter
-        inter_list.append(inter.float())
-        union_list.append(union.float())
-        num_predict_list.append(num_predict.float())
+        inter = (combination == 2).sum().float().item()
+        union = (combination == 1).sum().float().item() + inter
+        inter_list.append(inter)
+        union_list.append(union)
+        num_predict_list.append(num_predict)
         if union != 0:
             iou_list.append(inter / union)
         else:

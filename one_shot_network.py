@@ -181,7 +181,7 @@ class ResNet(nn.Module):
                       stride=1, padding=1, bias=True)
         )
 
-        self.residule1 = nn.Sequential(
+        self.residule2 = nn.Sequential(
             nn.ReLU(),
             nn.Conv2d(256, 256, kernel_size=3,
                       stride=1, padding=1, bias=True),
@@ -190,7 +190,7 @@ class ResNet(nn.Module):
                       stride=1, padding=1, bias=True)
         )
 
-        self.residule1 = nn.Sequential(
+        self.residule3 = nn.Sequential(
             nn.ReLU(),
             nn.Conv2d(256, 256, kernel_size=3,
                       stride=1, padding=1, bias=True),
