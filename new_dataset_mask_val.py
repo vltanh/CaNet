@@ -101,7 +101,7 @@ class Dataset(object):
             history_mask = torch.zeros(2, 41, 41).fill_(0.0)
         else:
             history_mask = self.history_mask_list[index]
-        return query_rgb, query_mask, support_rgb, support_mask, history_mask, sample_class, index
+        return query_rgb, query_mask, support_rgb, support_mask, history_mask, sample_class, index, support_name, query_name
 
     def __len__(self):
         return 1000
