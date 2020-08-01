@@ -241,7 +241,7 @@ class ResNet(nn.Module):
             layers.append(block(self.inplanes, planes, dilation=dilation))
         return nn.Sequential(*layers)
 
-    def forward(self, query_rgb, support_rgb, support_mask, history_mask):
+    def forward(self, query_rgb, support_rgb, support_mask, history_mask, vis_attn=False):
         ref_img = support_rgb.clone()
         ref_mask = support_mask.clone()
         query_img = query_rgb.clone()
@@ -288,15 +288,19 @@ class ResNet(nn.Module):
         # === Dense comparison OR Memory read
         support_mask = F.interpolate(support_mask, support_rgb.shape[-2:],
                                      mode='bilinear', align_corners=True)
+        # if not self.use_attn:
+        #     h, w = support_rgb.shape[-2:]
+        #     area = F.avg_pool2d(support_mask, support_rgb.shape[-2:])
+        #     area = area * h * w + 0.0005
+        #     z = support_mask * support_rgb
+        #     z = F.avg_pool2d(input=z,
+        #                      kernel_size=support_rgb.shape[-2:])
+        #     z = z * h * w / area
+        #     z = z.expand(-1, -1, feature_size[0], feature_size[1])
+        #     out = torch.cat([query_rgb, z], dim=1)
         if not self.use_attn:
-            h, w = support_rgb.shape[-2:]
-            area = F.avg_pool2d(support_mask, support_rgb.shape[-2:])
-            area = area * h * w + 0.0005
             z = support_mask * support_rgb
-            z = F.avg_pool2d(input=z,
-                             kernel_size=support_rgb.shape[-2:])
-            z = z * h * w / area
-            z = z.expand(-1, -1, feature_size[0], feature_size[1])
+            z, viz = self.memory(z, z, query_rgb)
             out = torch.cat([query_rgb, z], dim=1)
         else:
             z_K = support_mask * support_rgb_K
@@ -304,28 +308,33 @@ class ResNet(nn.Module):
             z, viz = self.memory(z_K, z_V, query_rgb_K)
             out = torch.cat([query_rgb_V, z], dim=1)
 
-            # import matplotlib.pyplot as plt
-            # for i in range(viz.size(2)):
-            #     plt.subplot(1, 2, 1)
-            #     m = torch.zeros(query_rgb.shape[-2], query_rgb.shape[-1])
-            #     m[i // query_rgb.shape[-1], i % query_rgb.shape[-1]] = 1
-            #     m = F.interpolate(m.unsqueeze(0).unsqueeze(
-            #         0), (query_img.shape[-2], query_img.shape[-1])).squeeze(0).squeeze(0)
-            #     # f = query_img[0].permute(1, 2, 0).detach().cpu()
-            #     plt.imshow(convert_image_np(query_img[0].cpu()))
-            #     plt.imshow(m, alpha=0.5)
-            #     plt.subplot(1, 2, 2)
-            #     v = viz[0, :, i].reshape(
-            #         support_rgb.shape[-2], support_rgb.shape[-1]).detach().cpu()
-            #     v = F.interpolate(v.unsqueeze(
-            #         0).unsqueeze(0), (ref_img.shape[-2], ref_img.shape[-1])).squeeze(0).squeeze(0)
-            #     f = ref_img[0].permute(1, 2, 0).detach().cpu()
-            #     plt.imshow(f)
-            #     plt.imshow(v, alpha=0.5)
-            #     plt.tight_layout()
-            #     plt.savefig(f'viz/{i:04d}')
-            #     # plt.show()
-            #     plt.close()
+        import matplotlib.pyplot as plt
+        for i in range(viz.size(2)):
+            m = torch.zeros(query_rgb.shape[-2], query_rgb.shape[-1])
+            m[i // query_rgb.shape[-1], i % query_rgb.shape[-1]] = 1
+            m = F.interpolate(m.unsqueeze(0).unsqueeze(
+                0), (query_img.shape[-2], query_img.shape[-1])).squeeze(0).squeeze(0)
+            # f = query_img[0].permute(1, 2, 0).detach().cpu()
+            plt.figure(figsize=(16, 8), dpi=100)
+            plt.subplot(1, 2, 1)
+            plt.imshow(convert_image_np(query_img[0].cpu()))
+            plt.imshow(m, alpha=0.5)
+            plt.xticks([])
+            plt.yticks([])
+            plt.subplot(1, 2, 2)
+            v = viz[0, :, i].reshape(
+                support_rgb.shape[-2], support_rgb.shape[-1]).detach().cpu()
+            v = F.interpolate(v.unsqueeze(
+                0).unsqueeze(0), (ref_img.shape[-2], ref_img.shape[-1])).squeeze(0).squeeze(0)
+            f = ref_img[0].detach().cpu()
+            plt.imshow(convert_image_np(f))
+            plt.imshow(v, alpha=0.5)
+            plt.xticks([])
+            plt.yticks([])
+            plt.tight_layout()
+            plt.savefig(f'viz/{i:04d}')
+            # plt.show()
+            plt.close()
 
         # === Decoder
         # Residue blocks
@@ -353,7 +362,10 @@ class ResNet(nn.Module):
         # === Prediction
         out = self.layer9(out)
 
-        return out
+        if vis_attn:
+            return out, viz
+        else:
+            return out
 
 
 def Res_Deeplab(num_classes=2, use_attn=False):
