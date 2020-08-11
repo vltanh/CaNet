@@ -308,33 +308,33 @@ class ResNet(nn.Module):
             z, viz = self.memory(z_K, z_V, query_rgb_K)
             out = torch.cat([query_rgb_V, z], dim=1)
 
-        import matplotlib.pyplot as plt
-        for i in range(viz.size(2)):
-            m = torch.zeros(query_rgb.shape[-2], query_rgb.shape[-1])
-            m[i // query_rgb.shape[-1], i % query_rgb.shape[-1]] = 1
-            m = F.interpolate(m.unsqueeze(0).unsqueeze(
-                0), (query_img.shape[-2], query_img.shape[-1])).squeeze(0).squeeze(0)
-            # f = query_img[0].permute(1, 2, 0).detach().cpu()
-            plt.figure(figsize=(16, 8), dpi=100)
-            plt.subplot(1, 2, 1)
-            plt.imshow(convert_image_np(query_img[0].cpu()))
-            plt.imshow(m, alpha=0.5)
-            plt.xticks([])
-            plt.yticks([])
-            plt.subplot(1, 2, 2)
-            v = viz[0, :, i].reshape(
-                support_rgb.shape[-2], support_rgb.shape[-1]).detach().cpu()
-            v = F.interpolate(v.unsqueeze(
-                0).unsqueeze(0), (ref_img.shape[-2], ref_img.shape[-1])).squeeze(0).squeeze(0)
-            f = ref_img[0].detach().cpu()
-            plt.imshow(convert_image_np(f))
-            plt.imshow(v, alpha=0.5)
-            plt.xticks([])
-            plt.yticks([])
-            plt.tight_layout()
-            plt.savefig(f'viz/{i:04d}')
-            # plt.show()
-            plt.close()
+        # import matplotlib.pyplot as plt
+        # for i in range(viz.size(2)):
+        #     m = torch.zeros(query_rgb.shape[-2], query_rgb.shape[-1])
+        #     m[i // query_rgb.shape[-1], i % query_rgb.shape[-1]] = 1
+        #     m = F.interpolate(m.unsqueeze(0).unsqueeze(
+        #         0), (query_img.shape[-2], query_img.shape[-1])).squeeze(0).squeeze(0)
+        #     # f = query_img[0].permute(1, 2, 0).detach().cpu()
+        #     plt.figure(figsize=(16, 8), dpi=100)
+        #     plt.subplot(1, 2, 1)
+        #     plt.imshow(convert_image_np(query_img[0].cpu()))
+        #     plt.imshow(m, alpha=0.5)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #     plt.subplot(1, 2, 2)
+        #     v = viz[0, :, i].reshape(
+        #         support_rgb.shape[-2], support_rgb.shape[-1]).detach().cpu()
+        #     v = F.interpolate(v.unsqueeze(
+        #         0).unsqueeze(0), (ref_img.shape[-2], ref_img.shape[-1])).squeeze(0).squeeze(0)
+        #     f = ref_img[0].detach().cpu()
+        #     plt.imshow(convert_image_np(f))
+        #     plt.imshow(v, alpha=0.5)
+        #     plt.xticks([])
+        #     plt.yticks([])
+        #     plt.tight_layout()
+        #     plt.savefig(f'viz/{i:04d}')
+        #     # plt.show()
+        #     plt.close()
 
         # === Decoder
         # Residue blocks

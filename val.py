@@ -87,12 +87,12 @@ with torch.no_grad():
     valset.history_mask_list = [None] * 1000
     best_iou = 0
     for eva_iter in range(options.iter_time):
-        save_root = f'viz{options.fold}_{options.a}'
-        save_dir = f'{save_root}/{eva_iter}'
-        os.makedirs(save_dir, exist_ok=True)
-        f = open(
-            f'{save_root}/score{options.fold}_{eva_iter}.csv', 'w')
-        f.write('support,query,class,score\n')
+        # save_root = f'viz{options.fold}_{options.a}'
+        # save_dir = f'{save_root}/{eva_iter}'
+        # os.makedirs(save_dir, exist_ok=True)
+        # f = open(
+        #     f'{save_root}/score{options.fold}_{eva_iter}.csv', 'w')
+        # f.write('support,query,class,score\n')
 
         all_inter, all_union, all_predict = [0] * 5, [0] * 5, [0] * 5
         for i_iter, batch in enumerate(tqdm.tqdm(valloader)):
@@ -125,24 +125,24 @@ with torch.no_grad():
 
             _, pred_label = torch.max(pred, 1)
 
-            plt.subplot(1, 2, 1)
-            plt.imshow(convert_image_np(support_rgb[0].cpu()))
-            plt.imshow(support_mask[0][0].cpu(), alpha=0.5)
+            # plt.subplot(1, 2, 1)
+            # plt.imshow(convert_image_np(support_rgb[0].cpu()))
+            # plt.imshow(support_mask[0][0].cpu(), alpha=0.5)
 
-            plt.subplot(1, 2, 2)
-            plt.imshow(convert_image_np(query_rgb[0].cpu()))
-            plt.imshow(pred_label[0].cpu(), alpha=0.5)
+            # plt.subplot(1, 2, 2)
+            # plt.imshow(convert_image_np(query_rgb[0].cpu()))
+            # plt.imshow(pred_label[0].cpu(), alpha=0.5)
 
-            plt.tight_layout()
-            plt.savefig(f'{save_dir}/{i_iter:03d}')
-            # plt.show()
-            plt.close()
+            # plt.tight_layout()
+            # plt.savefig(f'{save_dir}/{i_iter:03d}')
+            # # plt.show()
+            # plt.close()
 
             _, pred_label = torch.max(pred, 1)
             inter_list, union_list, _, num_predict_list = get_iou_v1(
                 query_mask, pred_label)
-            f.write(
-                f'{support_name[0]},{query_name[0]},{sample_class[0]},{float(inter_list[0])/union_list[0]}\n')
+            # f.write(
+            #     f'{support_name[0]},{query_name[0]},{sample_class[0]},{float(inter_list[0])/union_list[0]}\n')
             for j in range(query_mask.shape[0]):  # batch size
                 all_inter[sample_class[j] -
                           (options.fold * 5 + 1)] += inter_list[j]
@@ -160,7 +160,7 @@ with torch.no_grad():
         if mean_iou > best_iou:
             best_iou = mean_iou
 
-        f.close()
+        # f.close()
     print('IOU for this epoch: %.4f' % (best_iou))
 
 epoch_time = time.time() - begin_time
