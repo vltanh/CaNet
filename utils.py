@@ -3,6 +3,17 @@ import os
 import torch
 import torch.nn as nn
 from pylab import plt
+import numpy as np
+
+
+def convert_image_np(inp):
+    """Convert a Tensor to numpy image."""
+    inp = inp.numpy().transpose((1, 2, 0))
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    inp = std * inp + mean
+    inp = np.clip(inp, 0, 1)
+    return inp
 
 
 def load_resnet50_param(model, stop_layer='layer4'):
@@ -44,8 +55,11 @@ def turn_off(model):
 
 def get_10x_lr_params(model):
     b = []
-    b.append(model.module.layer5_K.parameters())
-    b.append(model.module.layer5_V.parameters())
+    if model.module.use_attn:
+        b.append(model.module.layer5_K.parameters())
+        b.append(model.module.layer5_V.parameters())
+    else:
+        b.append(model.module.layer5.parameters())
     b.append(model.module.layer55.parameters())
     b.append(model.module.layer6_0.parameters())
     b.append(model.module.layer6_1.parameters())

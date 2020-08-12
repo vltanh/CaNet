@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import math
+from utils import convert_image_np
 
 # code of dilated convolution part is referenced from https://github.com/speedinghzl/Pytorch-Deeplab
 
@@ -87,8 +88,9 @@ class Memory(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes):
+    def __init__(self, block, layers, num_classes, use_attn):
         self.inplanes = 64
+        self.use_attn = use_attn
         super(ResNet, self).__init__()
 
         # ResNet-50 (Deeplab variant)
@@ -106,19 +108,27 @@ class ResNet(nn.Module):
         #self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
 
         # Key-Value generator
-        self.layer5_K = nn.Sequential(
-            nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3,
-                      stride=1, padding=2, dilation=2, bias=True),
-            nn.ReLU(),
-            nn.Dropout2d(p=0.5),
-        )
+        if not self.use_attn:
+            self.layer5 = nn.Sequential(
+                nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3,
+                          stride=1, padding=2, dilation=2, bias=True),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.5),
+            )
+        else:
+            self.layer5_K = nn.Sequential(
+                nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3,
+                          stride=1, padding=2, dilation=2, bias=True),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.5),
+            )
 
-        self.layer5_V = nn.Sequential(
-            nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3,
-                      stride=1, padding=2, dilation=2, bias=True),
-            nn.ReLU(),
-            nn.Dropout2d(p=0.5),
-        )
+            self.layer5_V = nn.Sequential(
+                nn.Conv2d(in_channels=1536, out_channels=256, kernel_size=3,
+                          stride=1, padding=2, dilation=2, bias=True),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.5),
+            )
 
         # Memory augmented feature map post-process
         self.layer55 = nn.Sequential(
@@ -231,23 +241,38 @@ class ResNet(nn.Module):
             layers.append(block(self.inplanes, planes, dilation=dilation))
         return nn.Sequential(*layers)
 
-    def forward(self, query_rgb, support_rgb, support_mask, history_mask):
+    def forward(self, query_rgb, support_rgb, support_mask, history_mask, vis_attn=False):
+        ref_img = support_rgb.clone()
+        ref_mask = support_mask.clone()
+        query_img = query_rgb.clone()
+        #print('Input:', query_img.shape)
+
         # === Query feature extraction
         query_rgb = self.conv1(query_rgb)
+        #print('Conv 0:', query_rgb.shape)
         query_rgb = self.bn1(query_rgb)
         query_rgb = self.relu(query_rgb)
         query_rgb = self.maxpool(query_rgb)
+        #print('Layer 0:', query_rgb.shape)
         query_rgb = self.layer1(query_rgb)
+        #print('Layer 1:', query_rgb.shape)
         query_rgb = self.layer2(query_rgb)
+        #print('Layer 2:', query_rgb.shape)
         query_feat_layer2 = query_rgb
         query_rgb = self.layer3(query_rgb)
+        #print('Layer 3:', query_rgb.shape)
         # query_rgb = self.layer4(query_rgb)
         query_rgb_ = torch.cat([query_feat_layer2, query_rgb], dim=1)
         feature_size = query_rgb_.shape[-2:]
+        #print('Encoder:', query_rgb_.shape)
 
         # === Query key-value generation
-        query_rgb_K = self.layer5_K(query_rgb_)
-        query_rgb_V = self.layer5_V(query_rgb_)
+        if not self.use_attn:
+            query_rgb = self.layer5(query_rgb_)
+        else:
+            query_rgb_K = self.layer5_K(query_rgb_)
+            query_rgb_V = self.layer5_V(query_rgb_)
+        #print('Key/Value:', query_rgb_K.shape)
 
         # === Reference feature extraction
         support_rgb = self.conv1(support_rgb)
@@ -262,26 +287,54 @@ class ResNet(nn.Module):
         support_rgb_ = torch.cat([support_feat_layer2, support_rgb], dim=1)
 
         # === Reference key-value generation
-        support_rgb_K = self.layer5_K(support_rgb_)
-        support_rgb_V = self.layer5_V(support_rgb_)
+        if not self.use_attn:
+            support_rgb = self.layer5(support_rgb_)
+        else:
+            support_rgb_K = self.layer5_K(support_rgb_)
+            support_rgb_V = self.layer5_V(support_rgb_)
 
         # === Dense comparison OR Memory read
         support_mask = F.interpolate(support_mask, support_rgb.shape[-2:],
                                      mode='bilinear', align_corners=True)
-        if False:
-            h, w = support_rgb.shape[-2:]
-            area = F.avg_pool2d(support_mask, support_rgb.shape[-2:])
-            area = area * h * w + 0.0005
+        if not self.use_attn:
             z = support_mask * support_rgb
-            z = F.avg_pool2d(input=z,
-                             kernel_size=support_rgb.shape[-2:])
-            z = z * h * w / area
-            z = z.expand(-1, -1, feature_size[0], feature_size[1])
+            z, viz = self.memory(z, z, query_rgb)
+            out = torch.cat([query_rgb, z], dim=1)
         else:
             z_K = support_mask * support_rgb_K
             z_V = support_mask * support_rgb_V
-            z, p = self.memory(z_K, z_V, query_rgb_K)
-        out = torch.cat([query_rgb_V, z], dim=1)
+            z, viz = self.memory(z_K, z_V, query_rgb_K)
+            out = torch.cat([query_rgb_V, z], dim=1)
+        #print(out.shape)
+
+        if vis_attn:
+            import matplotlib.pyplot as plt
+            for i in range(viz.size(2)):
+                m = torch.zeros(query_rgb.shape[-2], query_rgb.shape[-1])
+                m[i // query_rgb.shape[-1], i % query_rgb.shape[-1]] = 1
+                m = F.interpolate(m.unsqueeze(0).unsqueeze(
+                    0), (query_img.shape[-2], query_img.shape[-1])).squeeze(0).squeeze(0)
+                # f = query_img[0].permute(1, 2, 0).detach().cpu()
+                plt.figure(figsize=(16, 8), dpi=100)
+                plt.subplot(1, 2, 1)
+                plt.imshow(convert_image_np(query_img[0].cpu()))
+                plt.imshow(m, alpha=0.5)
+                plt.xticks([])
+                plt.yticks([])
+                plt.subplot(1, 2, 2)
+                v = viz[0, :, i].reshape(
+                    support_rgb.shape[-2], support_rgb.shape[-1]).detach().cpu()
+                v = F.interpolate(v.unsqueeze(
+                    0).unsqueeze(0), (ref_img.shape[-2], ref_img.shape[-1])).squeeze(0).squeeze(0)
+                f = ref_img[0].detach().cpu()
+                plt.imshow(convert_image_np(f))
+                plt.imshow(v, alpha=0.5)
+                plt.xticks([])
+                plt.yticks([])
+                plt.tight_layout()
+                plt.savefig(f'viz/{i:04d}')
+                # plt.show()
+                plt.close()
 
         # === Decoder
         # Residue blocks
@@ -292,6 +345,7 @@ class ResNet(nn.Module):
         out = out + self.residule1(out_plus_history)
         out = out + self.residule2(out)
         out = out + self.residule3(out)
+        #print('ResBlocks:', out.shape)
 
         # ASPP
         global_feature = F.avg_pool2d(out, kernel_size=feature_size)
@@ -305,13 +359,15 @@ class ResNet(nn.Module):
                          self.layer6_4(out)],
                         dim=1)
         out = self.layer7(out)
+        #print('ASPP:', out.shape)
 
         # === Prediction
         out = self.layer9(out)
+        #print('Output:', out.shape)
 
         return out
 
 
-def Res_Deeplab(num_classes=2):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes)
+def Res_Deeplab(num_classes=2, use_attn=False):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes, use_attn)
     return model

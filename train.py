@@ -9,7 +9,7 @@ import tqdm
 import random
 import argparse
 from dataset_mask_train import Dataset as Dataset_train
-from new_dataset_mask_val import Dataset as Dataset_val
+from dataset_mask_val import Dataset as Dataset_val
 import os
 import torch
 from one_shot_network import Res_Deeplab
@@ -45,6 +45,9 @@ parser.add_argument('-iter_time',
 parser.add_argument('-data',
                     type=str,
                     help='path to the dataset folder')
+parser.add_argument('-attn',
+                    action='store_true',
+                    help='whether or not to separate')
 options = parser.parse_args()
 
 
@@ -82,7 +85,7 @@ check_dir(checkpoint_dir)
 
 # === Network architecture
 set_seed(3698)
-model = Res_Deeplab(num_classes=num_class)
+model = Res_Deeplab(num_classes=num_class, use_attn=options.attn)
 model = load_resnet50_param(model, stop_layer='layer4')
 model = nn.DataParallel(model, [0])
 turn_off(model)
