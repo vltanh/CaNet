@@ -296,16 +296,6 @@ class ResNet(nn.Module):
         # === Dense comparison OR Memory read
         support_mask = F.interpolate(support_mask, support_rgb.shape[-2:],
                                      mode='bilinear', align_corners=True)
-        # if not self.use_attn:
-        #     h, w = support_rgb.shape[-2:]
-        #     area = F.avg_pool2d(support_mask, support_rgb.shape[-2:])
-        #     area = area * h * w + 0.0005
-        #     z = support_mask * support_rgb
-        #     z = F.avg_pool2d(input=z,
-        #                      kernel_size=support_rgb.shape[-2:])
-        #     z = z * h * w / area
-        #     z = z.expand(-1, -1, feature_size[0], feature_size[1])
-        #     out = torch.cat([query_rgb, z], dim=1)
         if not self.use_attn:
             z = support_mask * support_rgb
             z, viz = self.memory(z, z, query_rgb)

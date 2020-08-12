@@ -72,7 +72,7 @@ with torch.no_grad():
 
     ax[0].imshow(convert_image_np(ref_img[0].cpu()))
     ax[0].imshow(ref_mask[0, 0].cpu(), alpha=0.5)
-    ax[0].set_title('Reference')
+    # ax[0].set_title('Reference')
     ax[0].set_xticks([])
     ax[0].set_yticks([])
 
@@ -86,7 +86,7 @@ with torch.no_grad():
 
         ax[1+i].imshow(convert_image_np(query_img[0].cpu()))
         ax[1+i].imshow(pred[0].cpu(), alpha=0.5)
-        ax[1+i].set_title(f'Reference')
+        # ax[1+i].set_title(f'Query')
         ax[1+i].set_xticks([])
         ax[1+i].set_yticks([])
 
