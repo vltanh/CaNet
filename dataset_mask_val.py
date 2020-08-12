@@ -13,8 +13,9 @@ import time
 class Dataset(object):
 
     def __init__(self, data_dir, fold, input_size=[321, 321], normalize_mean=[0, 0, 0],
-                 normalize_std=[1, 1, 1]):
+                 normalize_std=[1, 1, 1], is_train=True):
 
+        self.is_train = is_train
         self.data_dir = data_dir
 
         self.input_size = input_size
@@ -98,7 +99,10 @@ class Dataset(object):
             history_mask = torch.zeros(2, 41, 41).fill_(0.0)
         else:
             history_mask = self.history_mask_list[index]
-        return query_rgb, query_mask, support_rgb, support_mask,history_mask,sample_class,index
+        if self.is_train:
+            return query_rgb, query_mask, support_rgb, support_mask,history_mask,sample_class,index
+        else:
+            return query_rgb, query_mask, support_rgb, support_mask, history_mask, sample_class, index, support_name, query_name
 
     def __len__(self):
         return 1000

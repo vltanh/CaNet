@@ -106,7 +106,8 @@ trainloader = data.DataLoader(dataset,
 set_seed(3698)
 valset = Dataset_val(data_dir=options.data, fold=options.fold,
                      input_size=input_size,
-                     normalize_mean=IMG_MEAN, normalize_std=IMG_STD)
+                     normalize_mean=IMG_MEAN, normalize_std=IMG_STD,
+                     is_train=True)
 valloader = data.DataLoader(valset,
                             batch_size=1,
                             shuffle=False,

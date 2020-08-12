@@ -9,7 +9,7 @@ import tqdm
 import random
 import argparse
 from dataset_mask_train import Dataset as Dataset_train
-from new_dataset_mask_val import Dataset as Dataset_val
+from dataset_mask_val import Dataset as Dataset_val
 import os
 import torch
 from one_shot_network import Res_Deeplab
@@ -82,7 +82,8 @@ for s in seeds:
 
     valset = Dataset_val(data_dir=options.d, fold=options.fold,
                          input_size=input_size,
-                         normalize_mean=IMG_MEAN, normalize_std=IMG_STD)
+                         normalize_mean=IMG_MEAN, normalize_std=IMG_STD,
+                         is_train=False)
     valloader = data.DataLoader(valset, batch_size=1, shuffle=False, num_workers=4,
                                 drop_last=False)
 
