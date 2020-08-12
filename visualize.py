@@ -22,6 +22,7 @@ parser.add_argument('--queid')
 parser.add_argument('--classid', type=int)
 parser.add_argument('--niters', default=5, type=int)
 parser.add_argument('--a', action='store_true')
+parser.add_argument('--root', type=str)
 args = parser.parse_args()
 
 IMG_MEAN = [0.485, 0.456, 0.406]
@@ -45,7 +46,7 @@ CLASSES = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle',
            'bus', 'car', 'cat', 'chair', 'cow',
            'diningtable', 'dog', 'horse', 'motorbike', 'person',
            'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
-root = '../data/PASCAL-5i/'
+root = args.root
 ref_img_path = root + '/JPEGImages/' + args.refid + '.jpg'
 ref_mask_path = root + '/Annotations/' + \
     CLASSES[args.classid - 1] + '/' + args.refid + '.png'
